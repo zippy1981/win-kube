@@ -41,23 +41,36 @@ isolation:
 
 This path is experimental; see the risks in [docs/PLAN.md](docs/PLAN.md).
 
-## Commands
+## Commands and cmdlets
 
-| Command | What it does |
-| --- | --- |
-| `prereqs` | Elevated one-time setup (`scripts/Install-WinKubePrereqs.ps1`, PS 5.1 compatible) |
-| `tools` | Downloads kubectl and helm, and builds minikube from the pinned fork (`-Force` rebuilds) |
-| `up` | Creates the cluster and applies AKS-style labels. Options: `-Cpus`, `-MemoryMB`, `-KubernetesVersion`, `-WindowsVhdUrl`, `-Isolation` |
-| `enable-hyperv-isolation` | Installs the Hyper-V role in the Windows node, then adds the containerd handler and RuntimeClass `windows-hyperv` |
-| `load-images` | `docker save` → copy → `ctr import` on the Windows node (`-Images a:b,c:d`) |
-| `deploy` | `load-images` followed by `helm upgrade --install` of `charts/wordpress-windows` (`-WindowsVersion`, `-HelmSet`, `-SkipImageLoad`) |
-| `status` | Shows minikube status, nodes with labels, runtime classes and helm releases |
-| `ssh-windows` | Opens an interactive SSH session to the Windows node (cmd.exe) |
-| `down` | Deletes the cluster |
+`winkube.ps1` is a thin shim over the **WinKube** PowerShell module in `src/WinKube`. Each
+command calls one cmdlet. Use the cmdlets directly for scripting: they return objects,
+support `-WhatIf` where they change state, and have full help (`Get-Help New-WinKubeCluster -Full`,
+or the [cmdlet reference](docs/cmdlets/WinKube.md)).
 
-The kubectl context is the profile name (`winkube`; change it with `-Profile`).
-`.tools\bin` is added to `PATH` only while a command runs. Add it to your own `PATH` to
-use `kubectl` and `helm` directly.
+```powershell
+Import-Module ./src/WinKube
+New-WinKubeCluster -InformationAction Continue
+(Install-WinKubeChart).Url
+```
+
+| Command | Cmdlet | What it does |
+| --- | --- | --- |
+| `prereqs` | `Install-WinKubePrerequisite` | Elevated one-time setup (`scripts/Install-WinKubePrereqs.ps1`) |
+| `tools` | `Install-WinKubeTool` | Downloads kubectl and helm, and builds minikube from the pinned fork (`-Force` rebuilds) |
+| `up` | `New-WinKubeCluster` | Creates the cluster and applies AKS-style labels (`-CpuCount`, `-MemoryMB`, `-KubernetesVersion`, `-WindowsVhdUrl`, `-Isolation`) |
+| `enable-hyperv-isolation` | `Enable-WinKubeHyperVIsolation` | Installs the Hyper-V role in the Windows node, then adds the containerd handler and RuntimeClass `windows-hyperv` |
+| `load-images` | `Import-WinKubeImage` | `docker save` → copy → `ctr import` on the Windows node (`-Image`, pipeline input) |
+| `deploy` | `Install-WinKubeChart` | Side-loads images, then `helm upgrade --install` (`-Chart`, `-WindowsVersion`, `-Set`, `-SkipImageLoad`) |
+| `status` | `Get-WinKubeCluster` | Shows minikube status, nodes with labels, runtime classes and helm releases |
+| `ssh-windows` | `Enter-WinKubeWindowsNode` | Opens an interactive SSH session to the Windows node (cmd.exe) |
+| `down` | `Remove-WinKubeCluster` | Deletes the cluster (the shim skips the confirmation prompt) |
+| | `Get-WinKubeWindowsNode` | Returns the Windows node: name, IP, build, release, minikube machine |
+| | `Invoke-WinKubeWindowsNode` | Runs a script block on the Windows node over SSH |
+
+The shim keeps the original parameter names (`-Cpus`, `-Images`, `-HelmSet`) as aliases.
+The kubectl context is the profile name (`winkube`; change it with `-Profile`). The tools
+live in `.tools\bin`; add it to your `PATH` to use `kubectl` and `helm` directly.
 
 ## Sample chart
 
@@ -79,24 +92,30 @@ to keep it.
 ## Layout
 
 ```text
-winkube.ps1                       CLI (non-elevated)
+winkube.ps1                         CLI shim (non-elevated) over the module
+src/WinKube/                        the WinKube module: Public/ (one cmdlet per file), Private/
 scripts/Install-WinKubePrereqs.ps1  one-time elevated setup
-charts/wordpress-windows/         sample chart (values.yaml, values-2022.yaml)
-docs/PLAN.md                      roadmap, architecture, validation checklist
-docs/adr/                         architecture decision records
-plans/                            feature plans
-scripts/*.py, tests/              CI triage / repo status helpers and their tests (uv)
-.claude/agents/, .claude/skills/  Claude Code subagents and skills for this repo
-.tools/ .cache/                   downloaded tools and image tarballs (git-ignored)
+scripts/Invoke-RepoScriptAnalyzer.ps1, Update-WinKubeCmdletDoc.ps1   lint and docs tooling
+PSScriptAnalyzerSettings.psd1, tools/psscriptanalyzer/              strict analyzer settings and rules
+tests/*.Tests.ps1                   Pester tests (5.1 and 7); tests/*.py: Python helper tests
+docs/cmdlets/                       generated cmdlet reference (PlatyPS)
+charts/wordpress-windows/           sample chart (values.yaml, values-2022.yaml)
+docs/PLAN.md, docs/adr/, plans/     roadmap, decisions, feature plans
+.claude/agents/, .claude/skills/    Claude Code subagents and skills for this repo
+.tools/ .cache/                     downloaded tools and image tarballs (git-ignored)
 ```
 
 ## Contributing
 
 `main` only accepts squash-merged pull requests whose required checks pass
 ([ADR 0006](docs/adr/0006-main-is-protected-by-a-ruleset-with-named-required-checks.md)).
-Install the hooks once per clone, which needs [uv](https://docs.astral.sh/uv/) and Node.js:
+The hooks need [uv](https://docs.astral.sh/uv/), Node.js, and pwsh with three modules:
 
 ```powershell
+Install-PSResource -Name PSScriptAnalyzer, Pester, Microsoft.PowerShell.PlatyPS -Scope CurrentUser
 uv run pre-commit install
 uv run pre-commit run --all-files
 ```
+
+After changing a cmdlet's help or parameters, regenerate the reference with
+`./scripts/Update-WinKubeCmdletDoc.ps1`; CI fails when it is stale.

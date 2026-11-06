@@ -1,0 +1,94 @@
+# PowerShell checks: the strict PSScriptAnalyzer settings, Pester under PowerShell 7 and Windows PowerShell 5.1
+# (ADR 0007), and the PlatyPS cmdlet docs. Every job here is a required check on main (ADR 0006), so this workflow
+# has no path filters, and renaming a job means updating the ruleset in the same PR.
+name: PowerShell
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PSSCRIPTANALYZER_VERSION: '1.25.0'
+  PESTER_VERSION: '5.9.1'
+  PLATYPS_VERSION: '1.0.3'
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  psscriptanalyzer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install PSScriptAnalyzer
+        run: Install-PSResource -Name PSScriptAnalyzer -Version $env:PSSCRIPTANALYZER_VERSION -TrustRepository -Scope CurrentUser
+
+      - name: Analyze
+        run: ./scripts/Invoke-RepoScriptAnalyzer.ps1
+
+  pester-pwsh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Pester
+        run: Install-PSResource -Name Pester -Version $env:PESTER_VERSION -TrustRepository -Scope CurrentUser
+
+      - name: Test
+        run: |
+          Import-Module -Name Pester -RequiredVersion $env:PESTER_VERSION
+          $config = New-PesterConfiguration
+          $config.Run.Path = 'tests'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $config
+
+  pester-windows-powershell:
+    # The module must work in Windows PowerShell 5.1, which only exists on Windows
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Save Pester
+        # PSResourceGet in pwsh avoids Windows PowerShell's NuGet provider bootstrap; 5.1 imports it by path
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/modules" | Out-Null
+          Save-PSResource -Name Pester -Version $env:PESTER_VERSION -TrustRepository -Path "$env:RUNNER_TEMP/modules"
+
+      - name: Test
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module -Name "$env:RUNNER_TEMP/modules/Pester/$env:PESTER_VERSION/Pester.psd1"
+          Write-Output "PowerShell $($PSVersionTable.PSVersion), Pester $((Get-Module -Name Pester).Version)"
+          $config = New-PesterConfiguration
+          $config.Run.Path = 'tests'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $config
+
+  cmdlet-docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install PlatyPS
+        run: Install-PSResource -Name Microsoft.PowerShell.PlatyPS -Version $env:PLATYPS_VERSION -TrustRepository -Scope CurrentUser
+
+      - name: Check docs/cmdlets is current
+        run: ./scripts/Update-WinKubeCmdletDoc.ps1 -Check

@@ -48,22 +48,119 @@ param(
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
-[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+# Progress goes to the information stream; show it, since this usually runs in its own elevated window
+$InformationPreference = 'Continue'
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor
+[Net.SecurityProtocolType]::Tls12
 
-function Write-Step([string]$Message) { Write-Host "==> $Message" -ForegroundColor Cyan }
-function Write-Ok([string]$Message) { Write-Host "    [ok] $Message" -ForegroundColor Green }
-function Write-Change([string]$Message) { Write-Host "    [+]  $Message" -ForegroundColor Yellow }
+function Write-Step {
+    <#
+    .SYNOPSIS
+    Reports the start of a setup step.
+    .PARAMETER Message
+    The step.
+    .EXAMPLE
+    Write-Step -Message 'Enabling Windows optional features'
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([string]$Message)
+
+    Write-Information -MessageData "==> $Message"
+}
+
+function Write-Ok {
+    <#
+    .SYNOPSIS
+    Reports something that was already in place.
+    .PARAMETER Message
+    What was checked.
+    .EXAMPLE
+    Write-Ok -Message 'Containers already enabled'
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([string]$Message)
+
+    Write-Information -MessageData "    [ok] $Message"
+}
+
+function Write-Change {
+    <#
+    .SYNOPSIS
+    Reports a change this script made.
+    .PARAMETER Message
+    What changed.
+    .EXAMPLE
+    Write-Change -Message 'Enabling Containers'
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([string]$Message)
+
+    Write-Information -MessageData "    [+]  $Message"
+}
 
 function Test-Elevated {
-    $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    <#
+    .SYNOPSIS
+    Tests whether this process runs with an elevated administrator token.
+    .EXAMPLE
+    Test-Elevated
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object -TypeName Security.Principal.WindowsPrincipal -ArgumentList $identity
+    $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Add-UserToGroup {
+    <#
+    .SYNOPSIS
+    Adds an account to a local group unless it is already a member.
+    .DESCRIPTION
+    Get-LocalGroupMember can fail on groups holding Entra ID accounts, so the membership test is best-effort and a
+    MemberExists error from Add-LocalGroupMember is not an error. Sets $script:LogoffNeeded when it adds a member.
+    .PARAMETER GroupName
+    The local group.
+    .PARAMETER Account
+    The account, as DOMAIN\user.
+    .EXAMPLE
+    Add-UserToGroup -GroupName 'docker-users' -Account 'CONTOSO\alice'
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [string]$GroupName,
+        [string]$Account
+    )
+
+    $members = @(Get-LocalGroupMember -Name $GroupName -ErrorAction SilentlyContinue |
+            ForEach-Object -Process { $_.Name })
+    if ($members -contains $Account) {
+        Write-Ok -Message "$Account is in '$GroupName'"
+        return
+    }
+    try {
+        Add-LocalGroupMember -Name $GroupName -Member $Account
+        Write-Change -Message "Added $Account to '$GroupName'"
+        $script:LogoffNeeded = $true
+    } catch {
+        if ($_.FullyQualifiedErrorId -notlike 'MemberExists*') {
+            throw
+        }
+        Write-Ok -Message "$Account is in '$GroupName'"
+    }
 }
 
 # --- Self-elevate, carrying the original user forward --------------------------------
 if (-not (Test-Elevated)) {
     Write-Step "Re-launching elevated (UAC prompt) for user $User"
     $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"",
-                 '-User', "`"$User`"", '-DockerPath', "`"$DockerPath`"", '-DockerVersion', $DockerVersion)
+        '-User', "`"$User`"", '-DockerPath', "`"$DockerPath`"", '-DockerVersion', $DockerVersion)
     if ($SkipDocker) { $argList += '-SkipDocker' }
     if ($Restart) { $argList += '-Restart' }
     $exe = (Get-Process -Id $PID).Path
@@ -79,7 +176,8 @@ try {
     Write-Step 'Checking OS and virtualization support'
     $os = Get-CimInstance Win32_OperatingSystem
     if ($os.Caption -match 'Home') {
-        throw "Hyper-V is not available on '$($os.Caption)'. Windows Pro, Enterprise, Education or Server is required."
+        throw ("Hyper-V is not available on '$($os.Caption)'. " +
+            'Windows Pro, Enterprise, Education or Server is required.')
     }
     Write-Ok $os.Caption
     $cs = Get-CimInstance Win32_ComputerSystem
@@ -107,32 +205,15 @@ try {
     # --- Long paths -----------------------------------------------------------------
     Write-Step 'Enabling Win32 long paths'
     $fsKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem'
-    if ((Get-ItemProperty -Path $fsKey -Name LongPathsEnabled -ErrorAction SilentlyContinue).LongPathsEnabled -ne 1) {
-        Set-ItemProperty -Path $fsKey -Name LongPathsEnabled -Value 1 -Type DWord
+    $longPaths = Get-ItemProperty -Path $fsKey -Name LongPathsEnabled -ErrorAction SilentlyContinue
+    if ($null -eq $longPaths -or $longPaths.LongPathsEnabled -ne 1) {
+        New-ItemProperty -Path $fsKey -Name LongPathsEnabled -Value 1 -PropertyType DWord -Force | Out-Null
         Write-Change 'LongPathsEnabled=1'
     } else {
         Write-Ok 'Already enabled'
     }
 
     # --- Groups ---------------------------------------------------------------------
-    function Add-UserToGroup([string]$GroupName, [string]$Account) {
-        $members = @(Get-LocalGroupMember -Name $GroupName -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
-        if ($members -contains $Account) {
-            Write-Ok "$Account is in '$GroupName'"
-            return
-        }
-        # Get-LocalGroupMember can fail on groups holding Entra ID accounts, so the
-        # membership test above is best-effort and MemberExists is not an error.
-        try {
-            Add-LocalGroupMember -Name $GroupName -Member $Account
-            Write-Change "Added $Account to '$GroupName'"
-            $script:LogoffNeeded = $true
-        } catch {
-            if ($_.FullyQualifiedErrorId -notlike 'MemberExists*') { throw }
-            Write-Ok "$Account is in '$GroupName'"
-        }
-    }
-
     Write-Step "Granting $User non-elevated access to Hyper-V and Docker"
     # Look the Hyper-V group up by well-known SID; its display name is localized.
     $hvGroup = Get-LocalGroup -SID 'S-1-5-32-578' -ErrorAction SilentlyContinue
@@ -165,7 +246,7 @@ try {
                     ForEach-Object { $_.href } |
                     Where-Object { $_ -match '^docker-(\d+\.\d+\.\d+)\.zip$' }
                 $DockerVersion = ($links | ForEach-Object { [version]($_ -replace '^docker-|\.zip$', '') } |
-                    Sort-Object -Descending | Select-Object -First 1).ToString()
+                        Sort-Object -Descending | Select-Object -First 1).ToString()
             }
             $zip = Join-Path $env:TEMP "docker-$DockerVersion.zip"
             $extract = Join-Path $env:TEMP "docker-$DockerVersion"
@@ -199,7 +280,8 @@ try {
         if ($null -eq $groupProp -or $groupProp.Value -ne 'docker-users') {
             $config | Add-Member -NotePropertyName 'group' -NotePropertyValue 'docker-users' -Force
             # PS 5.1's Set-Content -Encoding UTF8 writes a BOM, which dockerd rejects.
-            [IO.File]::WriteAllText($daemonJson, ($config | ConvertTo-Json -Depth 10), (New-Object Text.UTF8Encoding($false)))
+            $utf8NoBom = New-Object -TypeName Text.UTF8Encoding -ArgumentList $false
+            [IO.File]::WriteAllText($daemonJson, ($config | ConvertTo-Json -Depth 10), $utf8NoBom)
             Write-Change "Set `"group`": `"docker-users`" in $daemonJson"
             $configChanged = $true
         } else {
@@ -228,21 +310,20 @@ try {
     }
 
     # --- Summary --------------------------------------------------------------------
-    Write-Host ''
     if ($script:RestartNeeded) {
-        Write-Host 'A REBOOT is required to finish enabling Windows features.' -ForegroundColor Magenta
+        Write-Warning -Message 'A REBOOT is required to finish enabling Windows features.'
     } elseif ($script:LogoffNeeded) {
-        Write-Host "Sign out and back in (or reboot) so $User picks up the new group memberships." -ForegroundColor Magenta
+        Write-Warning -Message "Sign out and back in (or reboot) so $User picks up the new group memberships."
     } else {
-        Write-Host 'Prerequisites satisfied. Next: .\winkube.ps1 tools' -ForegroundColor Green
+        Write-Information -MessageData 'Prerequisites satisfied. Next: .\winkube.ps1 tools'
     }
     if ($script:RestartNeeded -and $Restart) {
-        Write-Host 'Rebooting in 10 seconds...'
+        Write-Information -MessageData 'Rebooting in 10 seconds...'
         shutdown.exe /r /t 10 /c 'win-kube prerequisites'
     }
     exit 0
 } catch {
-    Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Warning -Message "ERROR: $($_.Exception.Message)"
     # Keep the elevated window open long enough to read the error.
     if ($Host.Name -eq 'ConsoleHost') { Start-Sleep -Seconds 15 }
     exit 1
