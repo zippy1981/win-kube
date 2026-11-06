@@ -1,0 +1,42 @@
+# Tests, coverage gate and ruff for the helper scripts in scripts/*.py, run with uv (ADR 0002). `pytest` is a
+# required check on main, so this workflow has no path filters.
+name: Python
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The CPython version uv downloads and runs the tests with. only-managed stops uv from using a Python already on
+  # the runner.
+  UV_PYTHON: '3.14'
+  UV_PYTHON_PREFERENCE: only-managed
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Install
+        run: uv sync --locked
+
+      - name: Test
+        run: uv run pytest -q --cov --cov-report=term-missing:skip-covered --cov-report=markdown-append:$GITHUB_STEP_SUMMARY
+
+      - name: Lint Python
+        run: |
+          uv run --with ruff ruff check .
+          uv run --with ruff ruff format --check .
