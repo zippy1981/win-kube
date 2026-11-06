@@ -1,0 +1,22 @@
+WordPress on Windows {{ .Values.windows.version }} images (node: Windows Server {{ .Values.windows.nodeVersion }}
+{{- with (include "wpwin.runtimeClassName" .) }}, runtimeClass {{ . }}{{ end }}).
+
+Open the site:
+{{- if eq .Values.wordpress.service.type "NodePort" }}
+  NODE_PORT=$(kubectl -n {{ .Release.Namespace }} get svc {{ include "wpwin.fullname" . }}-wordpress -o jsonpath='{.spec.ports[0].nodePort}')
+  NODE_IP=$(kubectl get nodes -l kubernetes.io/os=windows -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+  echo http://$NODE_IP:$NODE_PORT/
+{{- end }}
+  or: kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "wpwin.fullname" . }}-wordpress 8080:{{ .Values.wordpress.service.port }}
+      then browse http://localhost:8080/
+
+{{- if .Values.install.enabled }}
+
+Admin login: {{ .Values.install.adminUser }} at /wp-admin/
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "wpwin.fullname" . }} -o jsonpath='{.data.wordpress-admin-password}' | base64 -d
+{{- end }}
+
+Data is stored in emptyDir volumes unless *.persistence.existingClaim is set; deleting the
+MySQL pod resets the site (the post-upgrade hook re-runs the installer).
+
+Verify: helm test {{ .Release.Name }} -n {{ .Release.Namespace }}

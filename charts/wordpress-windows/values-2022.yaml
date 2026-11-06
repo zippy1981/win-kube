@@ -1,0 +1,6 @@
+# ltsc2022 images on the ltsc2025 node. Requires `winkube.ps1 enable-hyperv-isolation`
+# (or `winkube.ps1 up -Isolation hyperv`); pods get runtimeClassName windows-hyperv.
+#   helm upgrade --install wp charts/wordpress-windows -f charts/wordpress-windows/values-2022.yaml
+windows:
+  version: "2022"
+  nodeVersion: "2025"

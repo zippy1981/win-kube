@@ -1,0 +1,81 @@
+windows:
+  # Image family to run: "2025" (ltsc2025) or "2022" (ltsc2022). Picks default image tags.
+  version: "2025"
+  # Windows Server release of the node(s) the pods schedule onto. When it is newer than
+  # `version`, pods run with Hyper-V isolation through `hypervRuntimeClassName`.
+  # winkube.ps1 deploy sets this from the node's node.kubernetes.io/windows-build label.
+  nodeVersion: "2025"
+  # Created by `winkube.ps1 enable-hyperv-isolation` (handler runhcs-wcow-hypervisor).
+  hypervRuntimeClassName: windows-hyperv
+  # Force a RuntimeClass for every pod. Empty = automatic (see above).
+  runtimeClassName: ""
+  # Extra node selector terms; kubernetes.io/os and windows-build are always set.
+  nodeSelector: {}
+  # Tolerates the taint AKS-style Windows pools commonly carry.
+  tolerations:
+    - key: os
+      operator: Equal
+      value: windows
+      effect: NoSchedule
+
+images:
+  php:
+    repository: windows-nano-php
+    tag: ""        # defaults to windows.version
+  mysql:
+    repository: mysql-spike
+    tag: ""        # defaults to windows.version
+  # winkube.ps1 side-loads these images into the node's containerd; they are not pulled.
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+mysql:
+  database: wordpress
+  username: wordpress
+  # Generated on first install and preserved across upgrades when empty.
+  password: ""
+  rootPassword: ""
+  persistence:
+    # minikube has no storage provisioner for Windows nodes, so data lives in an emptyDir
+    # (lost when the pod is deleted). Point this at a pre-created PVC to keep it.
+    existingClaim: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+wordpress:
+  downloadUrl: https://wordpress.org/latest.zip
+  # windows-nano-php ships these DLLs but only enables curl/fileinfo/openssl/zip in php.ini.
+  phpExtensions:
+    - mysqli
+    - mbstring
+    - exif
+    - gd
+  phpIni:
+    memory_limit: 256M
+    upload_max_filesize: 64M
+    post_max_size: 64M
+    max_execution_time: "120"
+  debug: false
+  tablePrefix: wp_
+  service:
+    type: NodePort
+    port: 80
+    nodePort: null   # null = assigned by Kubernetes
+  persistence:
+    existingClaim: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  # Salts and keys are generated once and preserved across upgrades.
+
+# Post-install/upgrade hook that completes the WordPress web installer against MySQL.
+install:
+  enabled: true
+  title: win-kube WordPress
+  adminUser: admin
+  adminPassword: ""   # generated and preserved when empty
+  adminEmail: admin@example.com
+  timeoutSeconds: 1800

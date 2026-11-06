@@ -1,0 +1,136 @@
+{{- $fullname := include "wpwin.fullname" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-wordpress-files
+  labels:
+    {{- include "wpwin.labels" . | nindent 4 }}
+data:
+  {{- include "wpwin.filesAsConfig" (dict "ctx" . "glob" "files/wordpress/*") | indent 2 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-wordpress
+  labels:
+    {{- include "wpwin.labels" . | nindent 4 }}
+    app.kubernetes.io/component: wordpress
+spec:
+  type: {{ .Values.wordpress.service.type }}
+  selector:
+    {{- include "wpwin.selectorLabels" (dict "ctx" . "component" "wordpress") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.wordpress.service.port }}
+      targetPort: http
+      {{- if and (eq .Values.wordpress.service.type "NodePort") .Values.wordpress.service.nodePort }}
+      nodePort: {{ .Values.wordpress.service.nodePort }}
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-wordpress
+  labels:
+    {{- include "wpwin.labels" . | nindent 4 }}
+    app.kubernetes.io/component: wordpress
+spec:
+  # php -S is single-threaded and the docroot is an emptyDir: one replica only.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "wpwin.selectorLabels" (dict "ctx" . "component" "wordpress") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "wpwin.selectorLabels" (dict "ctx" . "component" "wordpress") | nindent 8 }}
+      annotations:
+        checksum/files: {{ include "wpwin.filesAsConfig" (dict "ctx" . "glob" "files/wordpress/*") | sha256sum }}
+    spec:
+      {{- include "wpwin.windowsPodSpec" . | nindent 6 }}
+      initContainers:
+        - name: fetch-wordpress
+          image: {{ include "wpwin.phpImage" . }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: ["cmd", "/S", "/C", "C:\\config\\init-wordpress.cmd"]
+          env:
+            - name: WORDPRESS_DOWNLOAD_URL
+              value: {{ .Values.wordpress.downloadUrl | quote }}
+          volumeMounts:
+            - name: docroot
+              mountPath: 'C:\wp'
+            - name: files
+              mountPath: 'C:\config'
+              readOnly: true
+      containers:
+        - name: wordpress
+          image: {{ include "wpwin.phpImage" . }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: ["cmd", "/S", "/C", "C:\\config\\run-wordpress.cmd"]
+          env:
+            - name: PHP_ARGS
+              value: {{ include "wpwin.phpArgs" . | quote }}
+            - name: WORDPRESS_DB_HOST
+              value: {{ printf "%s:3306" (include "wpwin.mysqlHost" .) | quote }}
+            - name: WORDPRESS_DB_NAME
+              value: {{ .Values.mysql.database | quote }}
+            - name: WORDPRESS_DB_USER
+              value: {{ .Values.mysql.username | quote }}
+            - name: WORDPRESS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}
+                  key: mysql-password
+            - name: WORDPRESS_TABLE_PREFIX
+              value: {{ .Values.wordpress.tablePrefix | quote }}
+            - name: WORDPRESS_DEBUG
+              value: {{ .Values.wordpress.debug | quote }}
+            {{- range $key := list "AUTH_KEY" "SECURE_AUTH_KEY" "LOGGED_IN_KEY" "NONCE_KEY" "AUTH_SALT" "SECURE_AUTH_SALT" "LOGGED_IN_SALT" "NONCE_SALT" }}
+            - name: {{ printf "WORDPRESS_%s" $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}
+                  key: {{ printf "WORDPRESS_%s" $key }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+          # A static file, so readiness does not depend on MySQL or on the install hook.
+          startupProbe:
+            httpGet:
+              path: /wp-includes/images/blank.gif
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /wp-includes/images/blank.gif
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.wordpress.resources | nindent 12 }}
+          volumeMounts:
+            - name: docroot
+              mountPath: 'C:\wp'
+            - name: files
+              mountPath: 'C:\config'
+              readOnly: true
+      volumes:
+        - name: docroot
+          {{- if .Values.wordpress.persistence.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.wordpress.persistence.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: files
+          configMap:
+            name: {{ $fullname }}-wordpress-files

@@ -1,0 +1,57 @@
+{{- if .Values.install.enabled }}
+{{- $fullname := include "wpwin.fullname" . -}}
+# Helm hook: after install/upgrade, complete WordPress's web installer against MySQL.
+# Helm waits for this Job (bounded by --timeout), so `helm install` returns a usable site.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullname }}-install
+  labels:
+    {{- include "wpwin.labels" . | nindent 4 }}
+    app.kubernetes.io/component: install
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: {{ add .Values.install.timeoutSeconds 600 }}
+  template:
+    metadata:
+      labels:
+        {{- include "wpwin.selectorLabels" (dict "ctx" . "component" "install") | nindent 8 }}
+    spec:
+      {{- include "wpwin.windowsPodSpec" . | nindent 6 }}
+      restartPolicy: Never
+      containers:
+        - name: install
+          image: {{ include "wpwin.phpImage" . }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: ["cmd", "/S", "/C", "C:\\config\\install-wordpress.cmd"]
+          env:
+            - name: PHP_ARGS
+              value: {{ include "wpwin.phpArgs" . | quote }}
+            - name: WP_INTERNAL_URL
+              value: {{ include "wpwin.wordpressUrl" . | quote }}
+            - name: WP_INSTALL_TIMEOUT
+              value: {{ .Values.install.timeoutSeconds | quote }}
+            - name: WP_TITLE
+              value: {{ .Values.install.title | quote }}
+            - name: WP_ADMIN_USER
+              value: {{ .Values.install.adminUser | quote }}
+            - name: WP_ADMIN_EMAIL
+              value: {{ .Values.install.adminEmail | quote }}
+            - name: WP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}
+                  key: wordpress-admin-password
+          volumeMounts:
+            - name: files
+              mountPath: 'C:\config'
+              readOnly: true
+      volumes:
+        - name: files
+          configMap:
+            name: {{ $fullname }}-wordpress-files
+{{- end }}

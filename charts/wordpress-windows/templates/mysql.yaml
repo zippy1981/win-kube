@@ -1,0 +1,100 @@
+{{- $fullname := include "wpwin.fullname" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-mysql-scripts
+  labels:
+    {{- include "wpwin.labels" . | nindent 4 }}
+data:
+  {{- include "wpwin.filesAsConfig" (dict "ctx" . "glob" "files/mysql/*") | indent 2 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-mysql
+  labels:
+    {{- include "wpwin.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mysql
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "wpwin.selectorLabels" (dict "ctx" . "component" "mysql") | nindent 4 }}
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-mysql
+  labels:
+    {{- include "wpwin.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mysql
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "wpwin.selectorLabels" (dict "ctx" . "component" "mysql") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "wpwin.selectorLabels" (dict "ctx" . "component" "mysql") | nindent 8 }}
+      annotations:
+        checksum/scripts: {{ .Files.Get "files/mysql/start-mysql.cmd" | sha256sum }}
+    spec:
+      {{- include "wpwin.windowsPodSpec" . | nindent 6 }}
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: mysql
+          image: {{ include "wpwin.mysqlImage" . }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: ["cmd", "/S", "/C", "C:\\scripts\\start-mysql.cmd"]
+          ports:
+            - name: mysql
+              containerPort: 3306
+          # First start runs --initialize-insecure, which is slow on Windows.
+          startupProbe:
+            tcpSocket:
+              port: mysql
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: mysql
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: mysql
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.mysql.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: 'C:\data'
+            - name: init
+              mountPath: 'C:\init'
+              readOnly: true
+            - name: scripts
+              mountPath: 'C:\scripts'
+              readOnly: true
+      volumes:
+        - name: data
+          {{- if .Values.mysql.persistence.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.mysql.persistence.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: init
+          secret:
+            secretName: {{ $fullname }}
+            items:
+              - key: init.sql
+                path: init.sql
+        - name: scripts
+          configMap:
+            name: {{ $fullname }}-mysql-scripts

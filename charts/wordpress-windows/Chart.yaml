@@ -1,0 +1,13 @@
+apiVersion: v2
+name: wordpress-windows
+description: >-
+  WordPress on Windows Server containers (windows-nano-php + mysql-spike) for the
+  win-kube local cluster. Defaults to ltsc2025 images; ltsc2022 runs via Hyper-V isolation.
+type: application
+version: 0.1.0
+appVersion: "latest"
+kubeVersion: ">=1.30.0-0"
+keywords:
+  - wordpress
+  - windows
+  - win-kube
