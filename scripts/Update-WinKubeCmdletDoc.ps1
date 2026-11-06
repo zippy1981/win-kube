@@ -78,6 +78,10 @@ function ConvertTo-StableMarkdown {
                 continue
             }
         }
+        # The module page takes its locale from the current culture, which differs between runners
+        if (-not $inFence -and $line -match '^Locale:') {
+            $line = 'Locale: en-US'
+        }
         if ($line -match '^```') {
             if (-not $inFence -and $line -eq '```') {
                 $line = '```text'
