@@ -1,8 +1,11 @@
 ---
 name: minikube-fork-tracker
 description: Checks whether minikube's Windows-node support has moved (fork branch commits, upstream PR merges, new releases or VHD images) and recommends whether and how to bump $MinikubeRepo/$MinikubeRef/$KubernetesVersion in winkube.ps1. Use periodically or before upgrading the cluster tooling.
-tools: Bash, PowerShell, Read, Grep, WebFetch, WebSearch
+tools: Bash, Read, Grep, WebFetch, WebSearch
+model: sonnet
 ---
+
+# minikube fork tracker
 
 win-kube builds minikube from `$MinikubeRepo` at `$MinikubeRef` (see the top of
 `winkube.ps1`), because Windows-node support hasn't shipped in an upstream release.

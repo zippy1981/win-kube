@@ -44,7 +44,7 @@ This path is experimental; see the risks in [docs/PLAN.md](docs/PLAN.md).
 ## Commands
 
 | Command | What it does |
-|---|---|
+| --- | --- |
 | `prereqs` | Elevated one-time setup (`scripts/Install-WinKubePrereqs.ps1`, PS 5.1 compatible) |
 | `tools` | Downloads kubectl and helm, and builds minikube from the pinned fork (`-Force` rebuilds) |
 | `up` | Creates the cluster and applies AKS-style labels. Options: `-Cpus`, `-MemoryMB`, `-KubernetesVersion`, `-WindowsVhdUrl`, `-Isolation` |
@@ -78,11 +78,25 @@ to keep it.
 
 ## Layout
 
-```
+```text
 winkube.ps1                       CLI (non-elevated)
 scripts/Install-WinKubePrereqs.ps1  one-time elevated setup
 charts/wordpress-windows/         sample chart (values.yaml, values-2022.yaml)
-docs/PLAN.md                      decisions, architecture, roadmap, validation checklist
-.claude/agents/                   Claude Code subagents for this repo
+docs/PLAN.md                      roadmap, architecture, validation checklist
+docs/adr/                         architecture decision records
+plans/                            feature plans
+scripts/*.py, tests/              CI triage / repo status helpers and their tests (uv)
+.claude/agents/, .claude/skills/  Claude Code subagents and skills for this repo
 .tools/ .cache/                   downloaded tools and image tarballs (git-ignored)
+```
+
+## Contributing
+
+`main` only accepts squash-merged pull requests whose required checks pass
+([ADR 0006](docs/adr/0006-main-is-protected-by-a-ruleset-with-named-required-checks.md)).
+Install the hooks once per clone, which needs [uv](https://docs.astral.sh/uv/) and Node.js:
+
+```powershell
+uv run pre-commit install
+uv run pre-commit run --all-files
 ```

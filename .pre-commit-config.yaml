@@ -1,0 +1,34 @@
+# Pre-commit hooks: formatting, lint and tests run before every commit.
+# Install once per clone:  uv run pre-commit install
+# Run by hand:             uv run pre-commit run --all-files
+#
+# Every hook is local and calls tools the repo already uses (uv, npx), so no third-party hook repositories are
+# downloaded. The Python version comes from UV_PYTHON (ADR 0002).
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --with ruff ruff format
+        language: system
+        types: [python]
+
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --with ruff ruff check --fix
+        language: system
+        types: [python]
+
+      - id: markdownlint
+        name: markdownlint
+        entry: npx -y markdownlint-cli --fix
+        language: system
+        types: [markdown]
+
+      - id: pytest
+        name: pytest (helper scripts)
+        entry: uv run pytest -q --cov --cov-report=term-missing:skip-covered
+        language: system
+        pass_filenames: false
+        files: (\.py|pyproject\.toml|uv\.lock)$

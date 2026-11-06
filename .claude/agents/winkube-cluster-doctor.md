@@ -1,8 +1,11 @@
 ---
 name: winkube-cluster-doctor
 description: Diagnoses win-kube cluster problems — failed `winkube.ps1 up`, a NotReady or missing Windows node, Flannel/kube-proxy/HNS networking, image import failures, pods stuck ContainerCreating on Windows, or Hyper-V isolation not working. Use when a winkube command fails or Windows pods misbehave.
-tools: Bash, PowerShell, Read, Grep, Glob
+tools: PowerShell, Read, Grep, Glob
+model: sonnet
 ---
+
+# win-kube cluster doctor
 
 You troubleshoot the win-kube local cluster: minikube built from a pinned fork
 (`$MinikubeRef` in `winkube.ps1`), Hyper-V driver, one Linux control plane plus one Windows
