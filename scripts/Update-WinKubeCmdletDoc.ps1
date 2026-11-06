@@ -126,6 +126,18 @@ if ($Check) {
     if ($stale.Count -gt 0 -or $extra.Count -gt 0) {
         foreach ($name in ($stale + $extra | Sort-Object)) {
             Write-Output -InputObject "docs/cmdlets/$name is out of date"
+            if ($existing.ContainsKey($name) -and $generated.ContainsKey($name)) {
+                # Show what differs, so platform differences can be diagnosed from the CI log
+                $differences = Compare-Object -ReferenceObject ($existing[$name] -split "`n") `
+                    -DifferenceObject ($generated[$name] -split "`n") -SyncWindow 0 | Select-Object -First 20
+                foreach ($difference in $differences) {
+                    $side = 'committed'
+                    if ($difference.SideIndicator -eq '=>') {
+                        $side = 'generated'
+                    }
+                    Write-Output -InputObject "    ${side}: $($difference.InputObject)"
+                }
+            }
         }
         throw 'Cmdlet docs are stale. Run ./scripts/Update-WinKubeCmdletDoc.ps1 and commit docs/cmdlets.'
     }

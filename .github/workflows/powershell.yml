@@ -65,7 +65,9 @@ jobs:
 
       - name: Save Pester
         # PSResourceGet in pwsh avoids Windows PowerShell's NuGet provider bootstrap; 5.1 imports it by path
-        run: Save-PSResource -Name Pester -Version $env:PESTER_VERSION -TrustRepository -Path "$env:RUNNER_TEMP/modules"
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/modules" | Out-Null
+          Save-PSResource -Name Pester -Version $env:PESTER_VERSION -TrustRepository -Path "$env:RUNNER_TEMP/modules"
 
       - name: Test
         shell: powershell
