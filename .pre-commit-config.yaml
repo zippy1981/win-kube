@@ -2,8 +2,9 @@
 # Install once per clone:  uv run pre-commit install
 # Run by hand:             uv run pre-commit run --all-files
 #
-# Every hook is local and calls tools the repo already uses (uv, npx), so no third-party hook repositories are
-# downloaded. The Python version comes from UV_PYTHON (ADR 0002).
+# Every hook is local and calls tools the repo already uses (uv, npx, pwsh), so no third-party hook repositories
+# are downloaded. The Python version comes from UV_PYTHON (ADR 0002). The PowerShell hooks need pwsh plus the
+# PSScriptAnalyzer, Pester and Microsoft.PowerShell.PlatyPS modules (see CLAUDE.md).
 
 repos:
   - repo: local
@@ -32,3 +33,26 @@ repos:
         language: system
         pass_filenames: false
         files: (\.py|pyproject\.toml|uv\.lock)$
+
+      - id: psscriptanalyzer
+        name: PSScriptAnalyzer (strict repo settings)
+        entry: pwsh -NoProfile -NonInteractive -File scripts/Invoke-RepoScriptAnalyzer.ps1
+        language: system
+        files: \.(ps1|psm1|psd1)$
+
+      - id: pester
+        name: Pester (WinKube module)
+        entry: >-
+          pwsh -NoProfile -NonInteractive -Command
+          "$c = New-PesterConfiguration; $c.Run.Path = 'tests'; $c.Run.Exit = $true;
+          $c.Output.Verbosity = 'Minimal'; Invoke-Pester -Configuration $c"
+        language: system
+        pass_filenames: false
+        files: \.(ps1|psm1|psd1)$
+
+      - id: cmdlet-docs
+        name: cmdlet docs are current (PlatyPS)
+        entry: pwsh -NoProfile -NonInteractive -File scripts/Update-WinKubeCmdletDoc.ps1 -Check
+        language: system
+        pass_filenames: false
+        files: ^(src/WinKube/|docs/cmdlets/|scripts/Update-WinKubeCmdletDoc\.ps1$)

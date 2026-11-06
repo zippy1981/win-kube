@@ -11,15 +11,19 @@ A minikube-based local cluster (Linux control plane + Windows Server 2025 node o
 
 ## PowerShell rules
 
-- **5.1 and 7 compatibility** ([ADR 0007](docs/adr/0007-powershell-code-supports-windows-powershell-5-1-and-powershell-7.md)) for everything in `winkube.ps1` and `scripts/`:
+- **The code is the WinKube module** ([ADR 0008](docs/adr/0008-winkube-is-a-module-checked-by-strict-analysis-pester-and-platyps.md)) in `src/WinKube`: one exported cmdlet per file in `Public/` (approved verb, `WinKube` noun prefix, `-ClusterProfile` with alias `Profile`, typed output objects, `-WhatIf` when it changes state), helpers in `Private/`. Add new public cmdlets to `FunctionsToExport` in `WinKube.psd1`. `winkube.ps1` is only a shim that maps subcommands to cmdlets.
+- Call native commands only through `Invoke-WinKubeNative` (or `Test-WinKubeNative` for exit-code checks) so tests can mock them. Report progress with `Write-WinKubeStep`; never `Write-Host`.
+- **5.1 and 7 compatibility** ([ADR 0007](docs/adr/0007-powershell-code-supports-windows-powershell-5-1-and-powershell-7.md)) for every PowerShell file:
   - no `??`, ternaries, `&&`/`||`, `ForEach-Object -Parallel` or `-AsHashtable`
   - use `Invoke-WebRequest -UseBasicParsing`
   - keep files ASCII-only (5.1 reads BOM-less files as ANSI)
   - put a blank line between `#Requires` and the comment-based help block
-  - never redirect native stderr (`2>$null`, `2>&1`) while `$ErrorActionPreference = 'Stop'`; use `Test-Native`
+  - never redirect native stderr (`2>$null`, `2>&1`) while `$ErrorActionPreference = 'Stop'`; use `Test-WinKubeNative`
+  - parse JSON that may be an array with `ConvertFrom-WinKubeJsonArray`; 5.1's `ConvertFrom-Json` doesn't enumerate arrays
+- **Strict analysis:** `PSScriptAnalyzerSettings.psd1` turns on every rule at every severity. Fix findings instead of suppressing them; a suppression needs a `Justification`. `Invoke-Formatter -Settings ./PSScriptAnalyzerSettings.psd1` fixes the formatting rules.
 - **Only `prereqs` elevates** ([ADR 0004](docs/adr/0004-only-the-prerequisites-step-elevates.md)). Every other command must work for a member of `Hyper-V Administrators` + `docker-users`. Don't add `-Verb RunAs`, and don't call cmdlets that need admin (e.g. `Resize-VHD`, `New-VMSwitch`) outside the prereqs script.
-- The minikube fork is pinned by `$MinikubeRepo`/`$MinikubeRef` in `winkube.ps1` ([ADR 0003](docs/adr/0003-build-minikube-from-the-windows-node-fork-at-a-pinned-commit.md)). Bump the SHA only after checking the kubelet version in the fork's default VHD against `$KubernetesVersion` (a kubelet must not be newer than the API server). The `minikube-fork-tracker` agent does this review.
-- Windows node access goes through `Invoke-WindowsNode` / `Copy-ToWindowsNode` (SSH as Administrator, default shell cmd.exe).
+- The minikube fork is pinned by `$script:MinikubeRepo`/`$script:MinikubeRef` in `src/WinKube/WinKube.psm1` ([ADR 0003](docs/adr/0003-build-minikube-from-the-windows-node-fork-at-a-pinned-commit.md)). Bump the SHA only after checking the kubelet version in the fork's default VHD against `$script:DefaultKubernetesVersion` (a kubelet must not be newer than the API server). The `minikube-fork-tracker` agent does this review.
+- Windows node access goes through `Invoke-WinKubeWindowsNode` (a script block plus `-ArgumentList`, with no `"` or cmd.exe metacharacters) and `Copy-WinKubeFileToWindowsNode`: SSH as Administrator, default shell cmd.exe, Windows PowerShell 5.1 on the node.
 
 ## Chart conventions (`charts/wordpress-windows`)
 
@@ -31,12 +35,19 @@ A minikube-based local cluster (Linux control plane + Windows Server 2025 node o
 ## Validate changes
 
 ```powershell
-# Parse both scripts under 5.1 (and pwsh)
-powershell -NoProfile -Command "foreach($f in 'winkube.ps1','scripts\Install-WinKubePrereqs.ps1'){$e=$null;[void][Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f),[ref]$null,[ref]$e);\"$f $($e.Count) errors\"}"
+# One-time: pwsh modules the hooks and CI use
+Install-PSResource -Name PSScriptAnalyzer, Pester, Microsoft.PowerShell.PlatyPS -Scope CurrentUser
+
+./scripts/Invoke-RepoScriptAnalyzer.ps1              # strict analyzer (CI job psscriptanalyzer)
+Invoke-Pester -Path tests                            # PowerShell 7 (CI job pester-pwsh)
+# Windows PowerShell 5.1 (CI job pester-windows-powershell): import Pester 5 by path, then Invoke-Pester -Path tests
+./scripts/Update-WinKubeCmdletDoc.ps1                # regenerate docs/cmdlets (CI job cmdlet-docs checks it)
 .\.tools\bin\helm.exe lint charts\wordpress-windows
 .\.tools\bin\helm.exe template t charts\wordpress-windows -f charts\wordpress-windows\values-2022.yaml
-uv run pre-commit run --all-files
+uv run pre-commit run --all-files                    # everything above except helm
 ```
+
+Required checks on `main`: `markdownlint`, `pytest`, `psscriptanalyzer`, `pester-pwsh`, `pester-windows-powershell`, `cmdlet-docs`.
 
 ## GitHub workflow
 

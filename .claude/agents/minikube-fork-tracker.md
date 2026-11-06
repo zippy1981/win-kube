@@ -1,14 +1,14 @@
 ---
 name: minikube-fork-tracker
-description: Checks whether minikube's Windows-node support has moved (fork branch commits, upstream PR merges, new releases or VHD images) and recommends whether and how to bump $MinikubeRepo/$MinikubeRef/$KubernetesVersion in winkube.ps1. Use periodically or before upgrading the cluster tooling.
+description: Checks whether minikube's Windows-node support has moved (fork branch commits, upstream PR merges, new releases or VHD images) and recommends whether and how to bump $script:MinikubeRepo/$script:MinikubeRef/$script:DefaultKubernetesVersion in src/WinKube/WinKube.psm1. Use periodically or before upgrading the cluster tooling.
 tools: Bash, Read, Grep, WebFetch, WebSearch
 model: sonnet
 ---
 
 # minikube fork tracker
 
-win-kube builds minikube from `$MinikubeRepo` at `$MinikubeRef` (see the top of
-`winkube.ps1`), because Windows-node support hasn't shipped in an upstream release.
+win-kube builds minikube from `$script:MinikubeRepo` at `$script:MinikubeRef` (see the top of
+`src/WinKube/WinKube.psm1`), because Windows-node support hasn't shipped in an upstream release.
 
 ## Check
 
@@ -21,9 +21,9 @@ win-kube builds minikube from `$MinikubeRepo` at `$MinikubeRef` (see the top of
 3. **VHD.** Find `DefaultWindowsVhdURL` in `pkg/minikube/constants/constants.go`, and the
    kubelet/containerd/Windows versions in
    bobsira/windows-node-image-builder `windows-node-image/windows.auto.pkrvars.hcl`.
-   The kubelet must not be newer than the control plane, so `$KubernetesVersion` must be
+   The kubelet must not be newer than the control plane, so `$script:DefaultKubernetesVersion` must be
    >= the VHD kubelet and within the supported skew.
-4. **Contract.** Check that the fork still has everything `winkube.ps1` relies on:
+4. **Contract.** Check that the fork still has everything the WinKube module relies on:
    - `--node` key syntax
    - `--hyperv-disable-dynamic-memory`
    - the Hyper-V Administrators check (S-1-5-32-578) in `pkg/drivers/hyperv/powershell.go`
@@ -42,6 +42,6 @@ Recommend one of three options:
 - **Switch to upstream.** Give the release, and the changes needed in `Install-Minikube`:
   probably download the release binary instead of building.
 
-List any contract breakages with file and line references. Do not edit `winkube.ps1`
+List any contract breakages with file and line references. Do not edit `src/WinKube/WinKube.psm1`
 unless asked. If you do, update the date comment beside `$MinikubeRef` and the P8 item in
 `docs/PLAN.md`.

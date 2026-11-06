@@ -11,3 +11,4 @@ These records explain why this repo is built the way it is. Each one covers a si
 | 0005 | [ltsc2025 node, with Hyper-V isolation for older images](0005-ltsc2025-node-with-hyper-v-isolation-for-older-images.md) | Accepted | 2026-11-05 |
 | 0006 | [main is protected by a ruleset with named required checks and squash-only merges](0006-main-is-protected-by-a-ruleset-with-named-required-checks.md) | Accepted | 2026-11-05 |
 | 0007 | [PowerShell code supports Windows PowerShell 5.1 and PowerShell 7](0007-powershell-code-supports-windows-powershell-5-1-and-powershell-7.md) | Accepted | 2026-11-05 |
+| 0008 | [WinKube is a PowerShell module checked by strict analysis, Pester and PlatyPS](0008-winkube-is-a-module-checked-by-strict-analysis-pester-and-platyps.md) | Accepted | 2026-11-05 |

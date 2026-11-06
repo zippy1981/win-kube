@@ -31,7 +31,7 @@ You audit the repo against its own conventions and report gaps. You are strictly
 - Nothing uses PowerShell 7-only syntax or cmdlet parameters (ADR 0007). Files are ASCII.
 - Only `scripts/Install-WinKubePrereqs.ps1` elevates or calls admin-only cmdlets (ADR 0004).
 - Exported commands use approved verbs and the `WinKube` prefix, have comment-based help and `[CmdletBinding()]`, and state-changing ones support `-WhatIf`.
-- `$MinikubeRef` has a date comment, and `$KubernetesVersion` is not older than the kubelet in the fork's VHD (ADR 0003).
+- `$script:MinikubeRef` in `src/WinKube/WinKube.psm1` has a date comment, and `$script:DefaultKubernetesVersion` is not older than the kubelet in the fork's VHD (ADR 0003).
 
 ### Charts (`charts/`)
 

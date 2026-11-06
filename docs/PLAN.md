@@ -22,7 +22,7 @@ a sample Helm chart that proves Windows workloads end to end.
 ## Architecture
 
 ```text
-winkube.ps1 (non-elevated)                         scripts/Install-WinKubePrereqs.ps1 (UAC, once)
+winkube.ps1 -> WinKube module (non-elevated)        scripts/Install-WinKubePrereqs.ps1 (UAC, once)
   tools  -> .tools/bin/{kubectl,helm,minikube}.exe     Hyper-V + Containers features
             minikube built from bobsira/minikube@SHA   Hyper-V Administrators + docker-users
   up     -> minikube start --driver=hyperv              OSS dockerd in C:\docker (+ service)
@@ -53,11 +53,12 @@ SSH default shell is `cmd.exe`, so remote work is done by copying a `.ps1` and r
 - [x] **P1: Prereqs script.** PS 5.1, idempotent, self-elevating.
 - [x] **P2: CLI.** `tools`, `up`, `down`, `status`, `load-images`, `deploy`, `ssh-windows`, `enable-hyperv-isolation`.
 - [x] **P3: Sample chart.** MySQL + WordPress + install hook + helm test.
-- [x] **P4: Agents and docs.** `.claude/agents/*`, `CLAUDE.md`, this plan.
+- [x] **P4: Agents and docs.** `.claude/agents/*`, `CLAUDE.md`, this plan, ADRs ported from windows-nano-demos.
+- [x] **P4b: WinKube module.** `src/WinKube` cmdlets behind the `winkube.ps1` shim, strict PSScriptAnalyzer, Pester on 5.1 and 7, PlatyPS docs, pre-commit hooks and required CI jobs (ADR 0008).
 - [ ] **P5: First real run.** Execute the validation checklist below on a laptop and fix what breaks.
 - [ ] **P6: Platform add-ons.** A `charts/platform` umbrella with ingress-nginx (Linux), metrics-server, and an in-cluster registry standing in for ACR.
 - [ ] **P7: Fallback engine.** `-Engine aksee` that drives AKS Edge Essentials behind the same commands.
-- [ ] **P8: Track upstream.** Switch `$MinikubeRepo`/`$MinikubeRef` to a kubernetes/minikube release once Windows nodes merge.
+- [ ] **P8: Track upstream.** Switch `$script:MinikubeRepo`/`$script:MinikubeRef` (in `src/WinKube/WinKube.psm1`) to a kubernetes/minikube release once Windows nodes merge.
 
 ## Validation status
 
